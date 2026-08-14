@@ -158,6 +158,11 @@ runtimeOnly 'org.postgresql:postgresql:42.7.2'
 implementation 'org.flywaydb:flyway-core'
 testImplementation 'org.testcontainers:testcontainers-postgresql:2.0.2'
 implementation 'org.apache.commons:commons-lang3:3.14.0'
+implementation 'org.springframework.boot:spring-boot-starter-security'
+implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+testImplementation 'org.springframework.security:spring-security-test'
 
 
 }
