@@ -1,0 +1,670 @@
+openapi: 3.0.3
+info:
+  title: HEI Diplômés API (version examen — noyau métier)
+  version: "1.0.0"
+  description: >
+    Version resserrée : ne couvre que les règles de gestion et livrables
+    explicitement demandés dans le sujet (assignation prof/groupe, notes +
+    historique, sécurité par rôle, relevé PDF async par email/S3, liste des
+    diplômés + export XLSX/S3, page Thymeleaf). Les entités de référence
+    (promotions, groupes, cours, comptes étudiants/enseignants) sont créées
+    par seed SQL (Flyway) plutôt que par API — on ne construit pas de CRUD
+    d'admin complet pour ça, ça ne fait pas partie des règles évaluées.
+    Rôles : STUDENT, TEACHER, ADMIN.
+servers:
+  - url: /api
+
+tags:
+  - name: reference
+    description: Lecture seule — nécessaire pour enchaîner les actions ci-dessous
+  - name: course-offerings
+  - name: exams
+  - name: grades
+  - name: transcripts
+  - name: graduates
+  - name: views
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ============================================================
+  # RÉFÉRENTIEL (lecture seule — les données sont seedées, pas créées via API)
+  # ============================================================
+  /promotions:
+    get:
+      tags: [reference]
+      summary: Lister les promotions (K, J, H, N...)
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Promotion" } }
+
+  /promotions/{promotionId}/groups:
+    get:
+      tags: [reference]
+      summary: Lister les groupes d'une promotion (K, K1, K2, K3...)
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      parameters: [{ $ref: "#/components/parameters/PromotionId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ClassGroup" } }
+
+  # ------------------------------------------------------------
+  # CORRECTIF #1 : endpoint de lecture minimal réintroduit.
+  # POST /groups/{groupId}/students a besoin d'UUID d'étudiants ;
+  # sans lecture, impossible de les récupérer autrement qu'en base.
+  # Reste volontairement simple (filtres, pas de recherche libre).
+  # ------------------------------------------------------------
+  /students:
+    get:
+      tags: [reference]
+      summary: Lister les étudiants (filtrable par promotion et/ou groupe)
+      description: >
+        Endpoint de lecture minimal, nécessaire pour récupérer les
+        studentId à utiliser dans POST /groups/{groupId}/students et
+        dans les autres actions (transcript-requests, grades...).
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      parameters:
+        - name: promotionId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: groupId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Student" } }
+
+  /groups/{groupId}/students:
+    get:
+      tags: [reference]
+      summary: Lister les étudiants actuellement dans ce groupe
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      parameters: [{ $ref: "#/components/parameters/GroupId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Student" } }
+    post:
+      tags: [reference]
+      summary: Affecter un ou plusieurs étudiants à ce groupe (ferme l'affectation précédente)
+      description: >
+        Règle métier explicite : "un étudiant peut changer de groupe à
+        tout moment durant son parcours" — ferme la membership active
+        (end_date) et ouvre une nouvelle ligne student_group_membership,
+        sans toucher aux notes déjà enregistrées.
+      security: [{ bearerAuth: [ADMIN] }]
+      parameters: [{ $ref: "#/components/parameters/GroupId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                studentIds:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        "200": { description: Affectation effectuée }
+
+  /courses:
+    get:
+      tags: [reference]
+      summary: Lister les cours (UE) du référentiel
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Course" } }
+
+  # ============================================================
+  # ASSIGNATION PROF / GROUPE SUR UN COURS (règle métier centrale)
+  # ============================================================
+  /course-offerings:
+    post:
+      tags: [course-offerings]
+      summary: Créer une session de cours pour une année calendaire
+      security: [{ bearerAuth: [ADMIN] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourseOfferingInput" }
+      responses:
+        "201":
+          description: Créée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseOffering" }
+
+  /course-offerings/{offeringId}:
+    get:
+      tags: [course-offerings]
+      summary: Détail d'une session de cours (profs, groupes, examens assignés)
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseOffering" }
+
+  /course-offerings/{offeringId}/teachers:
+    post:
+      tags: [course-offerings]
+      summary: Assigner un enseignant à cette session (un cours peut avoir plusieurs profs)
+      security: [{ bearerAuth: [ADMIN] }]
+      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { teacherId: { type: string, format: uuid } }
+      responses:
+        "200": { description: Assigné }
+
+  /course-offerings/{offeringId}/groups:
+    post:
+      tags: [course-offerings]
+      summary: Associer un groupe à cette session (le cours n'est pas forcément donné à tous les groupes)
+      security: [{ bearerAuth: [ADMIN] }]
+      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { groupId: { type: string, format: uuid } }
+      responses:
+        "200": { description: Associé }
+
+  # ============================================================
+  # EXAMENS (coefficient en fraction)
+  # ============================================================
+  /course-offerings/{offeringId}/exams:
+    post:
+      tags: [exams]
+      summary: Créer un examen (coefficient exprimé en fraction, ex 1/3)
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExamInput" }
+      responses:
+        "201":
+          description: Créé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exam" }
+
+  # ============================================================
+  # NOTES — saisie, modification historisée, consultation par rôle
+  # ============================================================
+  /exams/{examId}/grades:
+    post:
+      tags: [grades]
+      summary: Saisir les notes en masse pour un examen
+      description: >
+        Réservé à l'enseignant assigné à la session de cours (vérifié en
+        application, via course_offering_teacher — pas seulement par
+        @PreAuthorize sur le rôle TEACHER), ou à l'admin.
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      parameters: [{ $ref: "#/components/parameters/ExamId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  studentId: { type: string, format: uuid }
+                  value: { type: number, format: double, minimum: 0, maximum: 20 }
+      responses:
+        "201":
+          description: Notes enregistrées
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Grade" } }
+
+  /grades/{gradeId}:
+    put:
+      tags: [grades]
+      summary: Modifier une note existante (motif obligatoire, historisé)
+      description: >
+        Règle métier explicite : "une note peut changer... on doit
+        toujours dire pourquoi on modifie la note, et on doit avoir
+        un historique". Crée une ligne grade_history à chaque appel.
+        Réservé à l'enseignant du cours concerné (vérification
+        applicative) ou à l'admin.
+      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      parameters: [{ $ref: "#/components/parameters/GradeId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value, reason]
+              properties:
+                value: { type: number, format: double, minimum: 0, maximum: 20 }
+                reason: { type: string, description: "Motif de la modification (réclamation, erreur...)" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Grade" }
+
+  /grades/{gradeId}/history:
+    get:
+      tags: [grades]
+      summary: Historique des modifications d'une note
+      description: >
+        STUDENT ne peut consulter que l'historique de SES propres
+        notes (vérification applicative : grade.student_id == principal).
+      security: [{ bearerAuth: [ADMIN, TEACHER, STUDENT] }]
+      parameters: [{ $ref: "#/components/parameters/GradeId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/GradeHistoryEntry" } }
+
+  /students/{studentId}/grades:
+    get:
+      tags: [grades]
+      summary: Notes d'un étudiant (uniquement tronc commun S1-S3 + cours de sa spécialisation à partir du S4)
+      description: >
+        Règle sécu explicite : "un étudiant peut voir SES notes" — un
+        STUDENT ne peut appeler cet endpoint que pour son propre
+        studentId. Un TEACHER ne voit, parmi ces notes, que celles des
+        cours qu'il enseigne à cet étudiant (filtrage applicatif via
+        course_offering_teacher, pas d'accès à la totalité du bulletin).
+        Un ADMIN voit tout.
+      security: [{ bearerAuth: [ADMIN, TEACHER, STUDENT] }]
+      parameters: [{ $ref: "#/components/parameters/StudentId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/GradeDetail" } }
+
+  # ------------------------------------------------------------
+  # CORRECTIF #2 : sécurité resserrée.
+  # La règle du sujet donne au TEACHER un droit scopé à "ses cours",
+  # jamais à la performance globale d'un étudiant sur 3 ans. Cet
+  # endpoint agrège TOUS les cours (y compris ceux d'autres profs),
+  # donc TEACHER est retiré ici — contrairement à /grades ci-dessus,
+  # qui reste accessible au TEACHER mais filtré à ses seuls cours.
+  # ------------------------------------------------------------
+  /students/{studentId}/averages:
+    get:
+      tags: [grades]
+      summary: Moyennes calculées (par semestre, par année, générale sur le cursus)
+      description: >
+        Règle métier explicite : "publier les notes chaque année mais
+        aussi les notes finales pour les trois ans et la moyenne
+        générale de ces trois ans". Réservé à ADMIN et à l'étudiant
+        lui-même (self) : un TEACHER n'a le droit de voir que les
+        notes des cours qu'il enseigne (cf. /students/{id}/grades),
+        pas la performance globale de l'étudiant sur des cours qui ne
+        sont pas les siens — donc TEACHER n'est PAS autorisé ici.
+      security: [{ bearerAuth: [ADMIN, STUDENT] }]
+      parameters: [{ $ref: "#/components/parameters/StudentId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentAverages" }
+
+  # ============================================================
+  # RELEVÉS DE NOTES (PDF, async par email via S3 — livrable explicite)
+  # ============================================================
+  /students/{studentId}/transcript-requests:
+    post:
+      tags: [transcripts]
+      summary: Demander l'envoi du relevé de notes par email (PDF, généré en async, stocké sur S3)
+      security: [{ bearerAuth: [ADMIN, STUDENT] }]
+      parameters: [{ $ref: "#/components/parameters/StudentId" }]
+      responses:
+        "202":
+          description: Demande acceptée, traitement asynchrone (event + worker + Mailer Poja)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptRequest" }
+
+  /transcript-requests/{requestId}:
+    get:
+      tags: [transcripts]
+      summary: Statut d'une demande de relevé (PENDING/PROCESSING/SENT/FAILED)
+      security: [{ bearerAuth: [ADMIN, STUDENT] }]
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptRequest" }
+
+  # ============================================================
+  # DIPLÔMÉS / SORTANTS (fonctionnalité la plus dure du sujet)
+  # ============================================================
+  # ------------------------------------------------------------
+  # CORRECTIF #3 : complétude du parcours ajoutée à la description
+  # + champ creditsTaken/expectedCredits sur GraduateEntry, pour ne
+  # pas certifier "diplômé" un étudiant avec juste une bonne moyenne
+  # sur un sous-ensemble incomplet de notes.
+  # ------------------------------------------------------------
+  /promotions/{promotionId}/graduates:
+    get:
+      tags: [graduates]
+      summary: Liste classée des diplômés d'une promotion pour une spécialisation
+      description: >
+        Calcule, pour chaque étudiant de la promotion ayant suivi la
+        spécialisation demandée, la moyenne générale sur les 3 ans
+        (cours du tronc commun S1-S3 + cours de sa spécialisation à
+        partir du S4, notes conservées même après changement de
+        groupe). Un étudiant n'est retenu comme diplômé QUE s'il
+        cumule (a) une moyenne générale >= 10 ET (b) la totalité des
+        crédits attendus sur son parcours (180 crédits sur 3 ans) —
+        "on a notre diplôme quand on a 10 avec TOUTES les notes de
+        son parcours". Un étudiant avec une bonne moyenne mais un
+        dossier de notes incomplet n'apparaît pas dans cette liste.
+        Trié par rang (moyenne décroissante).
+      security: [{ bearerAuth: [ADMIN] }]
+      parameters:
+        - { $ref: "#/components/parameters/PromotionId" }
+        - name: specialization
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Specialization" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/GraduateEntry" } }
+
+  /promotions/{promotionId}/graduates/export:
+    post:
+      tags: [graduates]
+      summary: Générer le fichier Excel (XLSX) de la liste des diplômés et le stocker sur S3
+      description: >
+        Livrable explicite : "téléchargement (sans email) d'un fichier
+        Excel de la liste des diplômés d'une promotion donnée".
+        Génération synchrone (pas d'email impliqué) -> retourne
+        directement l'URL S3 pré-signée de téléchargement. Applique
+        le même critère de complétude que GET .../graduates.
+      security: [{ bearerAuth: [ADMIN] }]
+      parameters:
+        - { $ref: "#/components/parameters/PromotionId" }
+        - name: specialization
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Specialization" }
+      responses:
+        "201":
+          description: Fichier généré, lien de téléchargement direct (URL S3 pré-signée)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GraduateExport" }
+
+  /graduate-exports/{exportId}/download:
+    get:
+      tags: [graduates]
+      summary: Télécharger directement le fichier XLSX (redirige vers l'URL S3 pré-signée)
+      security: [{ bearerAuth: [ADMIN] }]
+      parameters:
+        - name: exportId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "302": { description: Redirection vers l'URL S3 pré-signée }
+
+  # ============================================================
+  # VUE THYMELEAF (livrable explicite)
+  # ============================================================
+  /admin/promotions:
+    get:
+      tags: [views]
+      summary: Page listant toutes les promotions avec bouton "télécharger diplômés"
+      security: [{ bearerAuth: [ADMIN] }]
+      responses:
+        "200":
+          description: Page HTML (Thymeleaf)
+          content:
+            text/html: { schema: { type: string } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Les rôles listés au niveau de chaque opération (ADMIN, TEACHER,
+        STUDENT) sont vérifiés via Spring Security (@PreAuthorize) en
+        combinant le rôle ET, pour STUDENT/TEACHER, la correspondance
+        avec l'identité du principal :
+        - STUDENT : uniquement sur son propre studentId (self-access).
+        - TEACHER : uniquement sur les cours qu'il enseigne (vérifié
+          via course_offering_teacher), jamais sur l'ensemble du
+          parcours d'un étudiant — voir /students/{id}/averages qui
+          lui est explicitement fermé pour cette raison.
+        - ADMIN : accès complet, y compris les résultats de promotion
+          sur les 3 ans.
+        À vérifier côté implémentation : le mécanisme d'authentification
+        réel exposé par Poja (souvent AWS Cognito derrière API Gateway)
+        avant de câbler cette section sur un JWT générique.
+
+  parameters:
+    PromotionId: { name: promotionId, in: path, required: true, schema: { type: string, format: uuid } }
+    GroupId:     { name: groupId,     in: path, required: true, schema: { type: string, format: uuid } }
+    StudentId:   { name: studentId,   in: path, required: true, schema: { type: string, format: uuid } }
+    OfferingId:  { name: offeringId,  in: path, required: true, schema: { type: string, format: uuid } }
+    ExamId:      { name: examId,      in: path, required: true, schema: { type: string, format: uuid } }
+    GradeId:     { name: gradeId,     in: path, required: true, schema: { type: string, format: uuid } }
+
+  schemas:
+    Specialization:
+      type: string
+      enum: [COMMUN, EL, TN]
+
+    AcademicLevel:
+      type: string
+      enum: [L1, L2, L3]
+
+    Promotion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: K }
+        entryCalendarYear: { type: integer, example: 2023 }
+        expectedGraduationYear: { type: integer, example: 2026 }
+
+    ClassGroup:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        promotionId: { type: string, format: uuid }
+        ref: { type: string, example: K1 }
+        academicLevel: { $ref: "#/components/schemas/AcademicLevel" }
+        specialization: { $ref: "#/components/schemas/Specialization" }
+
+    Student:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        studentRef:
+          type: string
+          example: STD24054
+          pattern: '^STD[A-Za-z0-9-]+$'
+          description: "Référence HEI officielle (cf. hei-admin-api). Convention observée: STD + année d'entrée (2 chiffres) + n° séquentiel (3 chiffres)."
+        firstName: { type: string }
+        lastName: { type: string }
+        specialization: { $ref: "#/components/schemas/Specialization" }
+
+    Course:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        ref: { type: string, example: PROG4 }
+        title: { type: string }
+        credits: { type: integer }
+        semesterNumber: { type: integer, minimum: 1, maximum: 6 }
+        specialization: { $ref: "#/components/schemas/Specialization" }
+
+    CourseOffering:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        course: { $ref: "#/components/schemas/Course" }
+        calendarYear: { type: integer, example: 2025 }
+        teacherIds: { type: array, items: { type: string, format: uuid } }
+        groupIds: { type: array, items: { type: string, format: uuid } }
+
+    CourseOfferingInput:
+      type: object
+      required: [courseId, calendarYear]
+      properties:
+        courseId: { type: string, format: uuid }
+        calendarYear: { type: integer }
+
+    Exam:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        courseOfferingId: { type: string, format: uuid }
+        label: { type: string, example: "Examen final" }
+        dateExam: { type: string, format: date-time }
+        coefficientNum: { type: integer, example: 1 }
+        coefficientDen: { type: integer, example: 3 }
+
+    ExamInput:
+      type: object
+      required: [label, dateExam, coefficientNum, coefficientDen]
+      properties:
+        label: { type: string }
+        dateExam: { type: string, format: date-time }
+        coefficientNum: { type: integer }
+        coefficientDen: { type: integer }
+
+    Grade:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        examId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        value: { type: number, format: double }
+        updatedAt: { type: string, format: date-time }
+
+    GradeDetail:
+      allOf:
+        - $ref: "#/components/schemas/Grade"
+        - type: object
+          properties:
+            courseRef: { type: string }
+            courseTitle: { type: string }
+            examLabel: { type: string }
+            coefficientNum: { type: integer }
+            coefficientDen: { type: integer }
+
+    GradeHistoryEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        previousValue: { type: number, format: double, nullable: true }
+        newValue: { type: number, format: double }
+        reason: { type: string }
+        modifiedBy: { type: string, format: uuid }
+        modifiedAt: { type: string, format: date-time }
+
+    StudentAverages:
+      type: object
+      properties:
+        studentId: { type: string, format: uuid }
+        perSemester:
+          type: array
+          items:
+            type: object
+            properties:
+              semesterNumber: { type: integer }
+              average: { type: number, format: double }
+              creditsTaken: { type: integer }
+        perYear:
+          type: array
+          items:
+            type: object
+            properties:
+              academicLevel: { $ref: "#/components/schemas/AcademicLevel" }
+              average: { type: number, format: double }
+              creditsTaken: { type: integer }
+        overallCursusAverage: { type: number, format: double }
+        creditsTaken: { type: integer, description: "Total de crédits couverts par des notes existantes" }
+        expectedCredits: { type: integer, example: 180, description: "Crédits attendus sur l'ensemble du parcours (3 ans)" }
+        eligibleForDiploma:
+          type: boolean
+          description: "true seulement si overallCursusAverage >= 10 ET creditsTaken >= expectedCredits"
+
+    TranscriptRequest:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING, PROCESSING, SENT, FAILED] }
+        emailSentTo: { type: string, nullable: true }
+        requestedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+
+    GraduateEntry:
+      type: object
+      properties:
+        rank: { type: integer, example: 1 }
+        studentRef: { type: string, example: STD24054 }
+        lastName: { type: string }
+        firstName: { type: string }
+        overallAverage: { type: number, format: double }
+        creditsTaken: { type: integer, description: "Doit être >= expectedCredits pour figurer dans la liste" }
+        expectedCredits: { type: integer, example: 180 }
+
+    GraduateExport:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        promotionId: { type: string, format: uuid }
+        specialization: { $ref: "#/components/schemas/Specialization" }
+        status: { type: string, enum: [PENDING, PROCESSING, READY, FAILED] }
+        downloadUrl: { type: string, nullable: true, description: "URL S3 pré-signée" }
+        generatedAt: { type: string, format: date-time }
