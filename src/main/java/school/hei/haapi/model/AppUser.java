@@ -14,6 +14,7 @@ import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -40,7 +41,7 @@ public class AppUser implements Serializable {
 
   @Id
   @GeneratedValue(strategy = IDENTITY)
-  private String id;
+  private UUID id;
 
   @Column(nullable = false, unique = true)
   private String email;
