@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -37,7 +38,7 @@ public class Course implements Serializable {
 
   @Id
   @GeneratedValue(strategy = IDENTITY)
-  private String id;
+  private UUID id;
 
   @Column(nullable = false, unique = true, length = 20)
   private String ref;
@@ -49,7 +50,7 @@ public class Course implements Serializable {
   private int credits;
 
   @Column(name = "semester_number", nullable = false)
-  private int semesterNumber; // 1..6 (S1..S6)
+  private int semesterNumber;
 
   @Enumerated(STRING)
   @Column(nullable = false, length = 10)

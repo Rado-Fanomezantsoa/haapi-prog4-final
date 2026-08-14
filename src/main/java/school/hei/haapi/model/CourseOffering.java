@@ -16,6 +16,7 @@ import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -42,7 +43,7 @@ public class CourseOffering implements Serializable {
 
   @Id
   @GeneratedValue(strategy = IDENTITY)
-  private String id;
+  private UUID id;
 
   @ManyToOne(fetch = LAZY)
   @JoinColumn(name = "course_id")
@@ -54,18 +55,18 @@ public class CourseOffering implements Serializable {
 
   @ManyToMany
   @JoinTable(
-      name = "course_offering_teacher",
-      joinColumns = @JoinColumn(name = "course_offering_id"),
-      inverseJoinColumns = @JoinColumn(name = "teacher_id"))
+          name = "course_offering_teacher",
+          joinColumns = @JoinColumn(name = "course_offering_id"),
+          inverseJoinColumns = @JoinColumn(name = "teacher_id"))
   @ToString.Exclude
   @EqualsAndHashCode.Exclude
   private List<AppUser> teachers;
 
   @ManyToMany
   @JoinTable(
-      name = "course_offering_group",
-      joinColumns = @JoinColumn(name = "course_offering_id"),
-      inverseJoinColumns = @JoinColumn(name = "group_id"))
+          name = "course_offering_group",
+          joinColumns = @JoinColumn(name = "course_offering_id"),
+          inverseJoinColumns = @JoinColumn(name = "group_id"))
   @ToString.Exclude
   @EqualsAndHashCode.Exclude
   private List<ClassGroup> groups;
@@ -75,7 +76,11 @@ public class CourseOffering implements Serializable {
   @EqualsAndHashCode.Exclude
   private List<Exam> exams;
 
-  @EqualsAndHashCode.Exclude @CreationTimestamp private Instant creationDatetime;
+  @EqualsAndHashCode.Exclude
+  @CreationTimestamp
+  private Instant creationDatetime;
 
-  @EqualsAndHashCode.Exclude @Builder.Default private boolean isDeleted = false;
+  @EqualsAndHashCode.Exclude
+  @Builder.Default
+  private boolean isDeleted = false;
 }

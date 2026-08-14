@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -39,7 +40,7 @@ public class ClassGroup implements Serializable {
 
   @Id
   @GeneratedValue(strategy = IDENTITY)
-  private String id;
+  private UUID id;
 
   @ManyToOne
   @JoinColumn(name = "promotion_id")
@@ -47,7 +48,7 @@ public class ClassGroup implements Serializable {
   private Promotion promotion;
 
   @Column(nullable = false, length = 10)
-  private String ref; // 'K', 'K1', 'K2', 'K3'...
+  private String ref;
 
   @Enumerated(STRING)
   @Column(name = "academic_level", nullable = false, length = 2)
