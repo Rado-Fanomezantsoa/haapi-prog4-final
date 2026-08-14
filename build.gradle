@@ -156,7 +156,7 @@ dependencies {
 implementation 'org.springframework.boot:spring-boot-starter-data-jpa:3.2.2'
 runtimeOnly 'org.postgresql:postgresql:42.7.2'
 implementation 'org.flywaydb:flyway-core'
-testImplementation 'org.testcontainers:postgresql:2.0.2'
+testImplementation 'org.testcontainers:testcontainers-postgresql:2.0.2'
 
 
 }
