@@ -33,9 +33,10 @@ public class StudentService {
     if (groupUuid != null) {
       if (promotionUuid != null) {
         students =
-            appUserRepository.findActiveStudentsByGroupIdAndPromotionId(groupUuid, promotionUuid);
+            appUserRepository.findActiveStudentsByGroupIdAndPromotionId(
+                groupUuid, promotionUuid, AppUser.Role.STUDENT);
       } else {
-        students = appUserRepository.findActiveStudentsByGroupId(groupUuid);
+        students = appUserRepository.findActiveStudentsByGroupId(groupUuid, AppUser.Role.STUDENT);
       }
     } else if (promotionUuid != null) {
       students = appUserRepository.findByRoleAndPromotion_Id(AppUser.Role.STUDENT, promotionUuid);

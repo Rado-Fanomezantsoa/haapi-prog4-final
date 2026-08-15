@@ -78,7 +78,7 @@ class StudentServiceTest {
   void listByGroup() {
     UUID groupId = UUID.randomUUID();
     when(classGroupRepository.findById(groupId)).thenReturn(Optional.of(new ClassGroup()));
-    when(appUserRepository.findActiveStudentsByGroupId(groupId))
+    when(appUserRepository.findActiveStudentsByGroupId(groupId, AppUser.Role.STUDENT))
         .thenReturn(List.of(student(UUID.randomUUID(), "STD24003")));
 
     List<StudentDto> result = studentService.findStudents(null, groupId.toString());
@@ -93,13 +93,16 @@ class StudentServiceTest {
     UUID promoId = UUID.randomUUID();
     when(promotionRepository.findById(promoId)).thenReturn(Optional.of(new Promotion()));
     when(classGroupRepository.findById(groupId)).thenReturn(Optional.of(new ClassGroup()));
-    when(appUserRepository.findActiveStudentsByGroupIdAndPromotionId(groupId, promoId))
+    when(appUserRepository.findActiveStudentsByGroupIdAndPromotionId(
+            groupId, promoId, AppUser.Role.STUDENT))
         .thenReturn(List.of(student(UUID.randomUUID(), "STD24004")));
 
     List<StudentDto> result = studentService.findStudents(promoId.toString(), groupId.toString());
 
     assertEquals(1, result.size());
-    verify(appUserRepository).findActiveStudentsByGroupIdAndPromotionId(eq(groupId), eq(promoId));
+    verify(appUserRepository)
+        .findActiveStudentsByGroupIdAndPromotionId(
+            eq(groupId), eq(promoId), eq(AppUser.Role.STUDENT));
   }
 
   @Test

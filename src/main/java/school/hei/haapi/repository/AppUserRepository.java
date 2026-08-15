@@ -21,18 +21,21 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
       SELECT m.student FROM StudentGroupMembership m
       WHERE m.group.id = :groupId
         AND m.endDate IS NULL
-        AND m.student.role = school.hei.haapi.model.AppUser.Role.STUDENT
+        AND m.student.role = :role
       """)
-  List<AppUser> findActiveStudentsByGroupId(@Param("groupId") UUID groupId);
+  List<AppUser> findActiveStudentsByGroupId(
+      @Param("groupId") UUID groupId, @Param("role") AppUser.Role role);
 
   @Query(
       """
       SELECT m.student FROM StudentGroupMembership m
       WHERE m.group.id = :groupId
         AND m.endDate IS NULL
-        AND m.student.role = school.hei.haapi.model.AppUser.Role.STUDENT
+        AND m.student.role = :role
         AND m.student.promotion.id = :promotionId
       """)
   List<AppUser> findActiveStudentsByGroupIdAndPromotionId(
-      @Param("groupId") UUID groupId, @Param("promotionId") UUID promotionId);
+      @Param("groupId") UUID groupId,
+      @Param("promotionId") UUID promotionId,
+      @Param("role") AppUser.Role role);
 }
