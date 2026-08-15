@@ -12,6 +12,7 @@ import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -35,7 +36,7 @@ public class Grade implements Serializable {
 
   @Id
   @GeneratedValue(strategy = IDENTITY)
-  private String id;
+  private UUID id;
 
   @ManyToOne
   @JoinColumn(name = "exam_id", updatable = false)
