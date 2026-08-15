@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -35,7 +36,7 @@ public class TranscriptRequest implements Serializable {
 
   @Id
   @GeneratedValue(strategy = IDENTITY)
-  private String id;
+  private UUID id;
 
   @ManyToOne
   @JoinColumn(name = "student_id")

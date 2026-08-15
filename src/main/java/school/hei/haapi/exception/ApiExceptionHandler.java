@@ -17,4 +17,14 @@ public class ApiExceptionHandler {
   public ResponseEntity<String> handleConflict(ConflictException e) {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
   }
+
+  @ExceptionHandler(BadRequestException.class)
+  public ResponseEntity<String> handleBadRequest(BadRequestException e) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+  }
+
+  @ExceptionHandler(ForbiddenException.class)
+  public ResponseEntity<String> handleForbidden(ForbiddenException e) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+  }
 }

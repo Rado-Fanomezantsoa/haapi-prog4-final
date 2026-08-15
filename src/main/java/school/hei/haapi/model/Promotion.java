@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -35,7 +36,7 @@ public class Promotion implements Serializable {
 
   @Id
   @GeneratedValue(strategy = IDENTITY)
-  private String id;
+  private UUID id;
 
   @Column(nullable = false, length = 5)
   private String code; // 'K', 'J', 'H', 'N'
