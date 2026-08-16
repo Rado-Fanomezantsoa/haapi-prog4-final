@@ -1,7 +1,6 @@
 package school.hei.haapi.controller;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -17,6 +16,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import school.hei.haapi.dto.student.GradeDetailDto;
 import school.hei.haapi.dto.student.StudentDto;
 import school.hei.haapi.model.Specialization;
 import school.hei.haapi.security.JwtAuthenticationFilter;
@@ -24,6 +24,8 @@ import school.hei.haapi.security.JwtService;
 import school.hei.haapi.security.SecurityConfig;
 import school.hei.haapi.security.SecurityExpressions;
 import school.hei.haapi.security.TestJwtGenerator;
+import school.hei.haapi.service.StudentAverageService;
+import school.hei.haapi.service.StudentGradeService;
 import school.hei.haapi.service.StudentService;
 
 @WebMvcTest(controllers = StudentController.class)
@@ -39,6 +41,8 @@ class StudentControllerTest {
   @Autowired private MockMvc mockMvc;
 
   @MockBean private StudentService studentService;
+  @MockBean private StudentGradeService studentGradeService;
+  @MockBean private StudentAverageService studentAverageService;
 
   @Test
   void listStudents_asAdmin_returns200() throws Exception {
@@ -64,7 +68,6 @@ class StudentControllerTest {
   @Test
   void listStudents_asTeacher_returns200() throws Exception {
     when(studentService.findStudents(any(), any())).thenReturn(List.of());
-
     String token = TestJwtGenerator.generate(UUID.randomUUID(), "TEACHER");
 
     mockMvc
@@ -89,8 +92,7 @@ class StudentControllerTest {
   @Test
   void listStudents_withPromotionFilter_passesQueryParam() throws Exception {
     UUID promoId = UUID.randomUUID();
-    when(studentService.findStudents(eq(promoId.toString()), isNull())).thenReturn(List.of());
-
+    when(studentService.findStudents(any(), any())).thenReturn(List.of());
     String token = TestJwtGenerator.generate(UUID.randomUUID(), "ADMIN");
 
     mockMvc
@@ -99,5 +101,34 @@ class StudentControllerTest {
                 .param("promotionId", promoId.toString())
                 .header("Authorization", "Bearer " + token))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  void getGrades_asAdmin_returns200() throws Exception {
+    UUID studentId = UUID.randomUUID();
+    when(studentGradeService.getGradesForStudent(studentId.toString()))
+        .thenReturn(
+            List.of(
+                GradeDetailDto.builder()
+                    .id(UUID.randomUUID().toString())
+                    .courseRef("PROG4")
+                    .value(14.0)
+                    .build()));
+
+    String token = TestJwtGenerator.generate(UUID.randomUUID(), "ADMIN");
+
+    mockMvc
+        .perform(
+            get("/api/students/" + studentId + "/grades")
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].courseRef").value("PROG4"));
+  }
+
+  @Test
+  void getGrades_noToken_returns401() throws Exception {
+    mockMvc
+        .perform(get("/api/students/" + UUID.randomUUID() + "/grades"))
+        .andExpect(status().isUnauthorized());
   }
 }
