@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Diplômés</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; }
+    table { border-collapse: collapse; width: 100%; max-width: 1000px; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; }
+    th { background: #f4f4f4; }
+    .msg { background: #e8f5e9; padding: 0.75rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+<p><a th:href="@{/admin/promotions}">← Promotions</a></p>
+
+<h1>
+  Diplômés
+  <span th:text="${specialization}">EL</span>
+</h1>
+
+<div class="msg" th:if="${exportMessage}">
+  <span th:text="${exportMessage}">Export OK</span>
+  <a th:if="${downloadUrl}" th:href="${downloadUrl}" target="_blank">Télécharger Excel</a>
+</div>
+
+<form th:action="@{/admin/promotions/{id}/graduates/export(id=${promotionId})}" method="post">
+  <input type="hidden" name="specialization" th:value="${specialization}"/>
+  <button type="submit">Exporter Excel (S3)</button>
+</form>
+
+<table>
+  <thead>
+  <tr>
+    <th>Rang</th>
+    <th>Réf.</th>
+    <th>Nom</th>
+    <th>Prénom</th>
+    <th>Moyenne</th>
+    <th>Crédits</th>
+  </tr>
+  </thead>
+  <tbody>
+  <tr th:each="g : ${graduates}">
+    <td th:text="${g.rank}">1</td>
+    <td th:text="${g.studentRef}">STD…</td>
+    <td th:text="${g.lastName}">Nom</td>
+    <td th:text="${g.firstName}">Prénom</td>
+    <td th:text="${#numbers.formatDecimal(g.overallAverage, 1, 2)}">12.00</td>
+    <td>
+      <span th:text="${g.creditsTaken}">180</span>
+      /
+      <span th:text="${g.expectedCredits}">180</span>
+    </td>
+  </tr>
+  <tr th:if="${#lists.isEmpty(graduates)}">
+    <td colspan="6">Aucun diplômé éligible pour cette spécialisation.</td>
+  </tr>
+  </tbody>
+</table>
+</body>
+</html>
