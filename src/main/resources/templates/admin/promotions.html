@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Admin — Promotions</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; }
+    table { border-collapse: collapse; width: 100%; max-width: 900px; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; }
+    th { background: #f4f4f4; }
+    a, button { margin-right: 0.5rem; }
+  </style>
+</head>
+<body>
+<h1>Promotions HEI</h1>
+<p>Espace admin — diplômés et exports.</p>
+
+<table>
+  <thead>
+  <tr>
+    <th>Code</th>
+    <th>Entrée</th>
+    <th>Diplôme prévu</th>
+    <th>Actions</th>
+  </tr>
+  </thead>
+  <tbody>
+  <tr th:each="p : ${promotions}">
+    <td th:text="${p.code}">K</td>
+    <td th:text="${p.entryCalendarYear}">2024</td>
+    <td th:text="${p.expectedGraduationYear}">2027</td>
+    <td>
+      <a th:href="@{/admin/promotions/{id}/graduates(id=${p.id}, specialization='EL')}">Diplômés EL</a>
+      <a th:href="@{/admin/promotions/{id}/graduates(id=${p.id}, specialization='TN')}">Diplômés TN</a>
+    </td>
+  </tr>
+  <tr th:if="${#lists.isEmpty(promotions)}">
+    <td colspan="4">Aucune promotion en base.</td>
+  </tr>
+  </tbody>
+</table>
+</body>
+</html>
