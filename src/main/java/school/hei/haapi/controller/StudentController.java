@@ -7,15 +7,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import school.hei.haapi.dto.student.GradeDetailDto;
 import school.hei.haapi.dto.student.StudentAveragesDto;
 import school.hei.haapi.dto.student.StudentDto;
+import school.hei.haapi.dto.student.TranscriptRequestDto;
 import school.hei.haapi.service.StudentAverageService;
 import school.hei.haapi.service.StudentGradeService;
 import school.hei.haapi.service.StudentService;
+import school.hei.haapi.service.TranscriptService;
 
 @RestController
 @RequestMapping("/api/students")
@@ -25,6 +28,7 @@ public class StudentController {
   private final StudentService studentService;
   private final StudentGradeService studentGradeService;
   private final StudentAverageService studentAverageService;
+  private final TranscriptService transcriptService;
 
   @GetMapping
   @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
@@ -46,4 +50,10 @@ public class StudentController {
   public ResponseEntity<StudentAveragesDto> getAverages(@PathVariable UUID studentId) {
     return ResponseEntity.ok(studentAverageService.getAverages(studentId.toString()));
   }
+  @PostMapping("/{studentId}/transcript-requests")
+@PreAuthorize("hasRole('ADMIN') or @securityExpressions.isSelfStudent(#studentId)")
+public ResponseEntity<TranscriptRequestDto> requestTranscript(@PathVariable UUID studentId) {
+  return ResponseEntity.accepted()
+      .body(transcriptService.requestTranscript(studentId.toString()));
+}
 }

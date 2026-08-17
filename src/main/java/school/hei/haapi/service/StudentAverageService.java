@@ -38,14 +38,25 @@ public class StudentAverageService {
   @Transactional(readOnly = true)
   public StudentAveragesDto getAverages(String studentIdParam) {
     UUID studentId = parseUuid(studentIdParam, "studentId");
-
-    AppUser student =
-        appUserRepository
-            .findByIdAndRole(studentId, AppUser.Role.STUDENT)
-            .orElseThrow(() -> new NotFoundException("Student not found: " + studentId));
-
+    AppUser student = findStudentOrThrow(studentId);
     assertCanReadAverages(studentId);
+    return computeAverages(student);
+  }
 
+  @Transactional(readOnly = true)
+  public StudentAveragesDto getAveragesInternal(UUID studentId) {
+    AppUser student = findStudentOrThrow(studentId);
+    return computeAverages(student);
+  }
+
+  private AppUser findStudentOrThrow(UUID studentId) {
+    return appUserRepository
+        .findByIdAndRole(studentId, AppUser.Role.STUDENT)
+        .orElseThrow(() -> new NotFoundException("Student not found: " + studentId));
+  }
+
+  private StudentAveragesDto computeAverages(AppUser student) {
+    UUID studentId = student.getId();
     List<Grade> grades = gradeRepository.findAllByStudentIdWithDetails(studentId);
 
     List<Grade> relevant =
@@ -90,7 +101,6 @@ public class StudentAverageService {
     if ("STUDENT".equals(role) && securityExpressions.isSelfStudent(studentId)) {
       return;
     }
-
     throw new ForbiddenException("Only ADMIN or the student themself can view averages");
   }
 

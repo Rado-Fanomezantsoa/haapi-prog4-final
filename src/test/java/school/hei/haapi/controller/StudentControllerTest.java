@@ -27,6 +27,7 @@ import school.hei.haapi.security.TestJwtGenerator;
 import school.hei.haapi.service.StudentAverageService;
 import school.hei.haapi.service.StudentGradeService;
 import school.hei.haapi.service.StudentService;
+import school.hei.haapi.service.TranscriptService;
 
 @WebMvcTest(controllers = StudentController.class)
 @Import({
@@ -43,6 +44,7 @@ class StudentControllerTest {
   @MockBean private StudentService studentService;
   @MockBean private StudentGradeService studentGradeService;
   @MockBean private StudentAverageService studentAverageService;
+  @MockBean private TranscriptService transcriptService;
 
   @Test
   void listStudents_asAdmin_returns200() throws Exception {
