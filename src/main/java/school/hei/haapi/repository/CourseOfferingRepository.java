@@ -9,5 +9,7 @@ public interface CourseOfferingRepository extends JpaRepository<CourseOffering, 
 
   boolean existsByCourse_IdAndCalendarYear(UUID courseId, int calendarYear);
 
+  boolean existsByIdAndTeachers_Id(UUID id, UUID teacherId);
+
   Optional<CourseOffering> findByCourse_IdAndCalendarYear(UUID courseId, int calendarYear);
 }
