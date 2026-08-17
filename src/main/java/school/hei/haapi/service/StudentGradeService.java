@@ -38,15 +38,28 @@ public class StudentGradeService {
 
     assertCanReadGrades(studentId);
 
-    List<Grade> grades = gradeRepository.findAllByStudentIdWithDetails(studentId);
-
     String role = securityExpressions.currentUserRole();
     UUID currentUserId = securityExpressions.currentUserId();
 
-    return grades.stream()
-        .filter(g -> isCourseRelevantForStudent(g, student))
+    return loadRelevantGrades(student).stream()
         .filter(g -> isVisibleForCaller(g, role, currentUserId))
         .map(this::toDto)
+        .toList();
+  }
+
+  @Transactional(readOnly = true)
+  public List<GradeDetailDto> getGradesForStudentInternal(UUID studentId) {
+    AppUser student =
+        appUserRepository
+            .findByIdAndRole(studentId, AppUser.Role.STUDENT)
+            .orElseThrow(() -> new NotFoundException("Student not found: " + studentId));
+
+    return loadRelevantGrades(student).stream().map(this::toDto).toList();
+  }
+
+  private List<Grade> loadRelevantGrades(AppUser student) {
+    return gradeRepository.findAllByStudentIdWithDetails(student.getId()).stream()
+        .filter(g -> isCourseRelevantForStudent(g, student))
         .toList();
   }
 
