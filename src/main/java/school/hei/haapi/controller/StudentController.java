@@ -50,10 +50,11 @@ public class StudentController {
   public ResponseEntity<StudentAveragesDto> getAverages(@PathVariable UUID studentId) {
     return ResponseEntity.ok(studentAverageService.getAverages(studentId.toString()));
   }
+
   @PostMapping("/{studentId}/transcript-requests")
-@PreAuthorize("hasRole('ADMIN') or @securityExpressions.isSelfStudent(#studentId)")
-public ResponseEntity<TranscriptRequestDto> requestTranscript(@PathVariable UUID studentId) {
-  return ResponseEntity.accepted()
-      .body(transcriptService.requestTranscript(studentId.toString()));
-}
+  @PreAuthorize("hasRole('ADMIN') or @securityExpressions.isSelfStudent(#studentId)")
+  public ResponseEntity<TranscriptRequestDto> requestTranscript(@PathVariable UUID studentId) {
+    return ResponseEntity.accepted()
+        .body(transcriptService.requestTranscript(studentId.toString()));
+  }
 }
