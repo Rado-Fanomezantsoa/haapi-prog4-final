@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import school.hei.haapi.model.AppUser;
+import school.hei.haapi.model.Specialization;
 
 public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
 
@@ -15,6 +16,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
   List<AppUser> findByRole(AppUser.Role role);
 
   List<AppUser> findByRoleAndPromotion_Id(AppUser.Role role, UUID promotionId);
+
+  List<AppUser> findByRoleAndPromotion_IdAndSpecialization(
+      AppUser.Role role, UUID promotionId, Specialization specialization);
 
   @Query(
       """
