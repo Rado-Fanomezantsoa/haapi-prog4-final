@@ -1,5 +1,6 @@
 package school.hei.haapi.exception;
 
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -32,5 +33,10 @@ public class ApiExceptionHandler {
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<String> handleAccessDenied(AccessDeniedException e) {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Access denied");
+  }
+
+  @ExceptionHandler(ConstraintViolationException.class)
+  public ResponseEntity<String> handleConstraintViolation(ConstraintViolationException e) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
   }
 }
