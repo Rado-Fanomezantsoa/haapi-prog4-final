@@ -1,5 +1,6 @@
 package school.hei.haapi.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -7,17 +8,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import school.hei.haapi.dto.grade.GradeDto;
 import school.hei.haapi.dto.grade.GradeEntryInputDto;
+import school.hei.haapi.dto.grade.GradeHistoryEntryDto;
+import school.hei.haapi.dto.grade.GradeUpdateInputDto;
 import school.hei.haapi.exception.ConflictException;
 import school.hei.haapi.exception.ForbiddenException;
 import school.hei.haapi.exception.NotFoundException;
-import school.hei.haapi.model.AppUser;
-import school.hei.haapi.model.CourseOffering;
-import school.hei.haapi.model.Exam;
-import school.hei.haapi.model.Grade;
-import school.hei.haapi.repository.AppUserRepository;
-import school.hei.haapi.repository.CourseOfferingRepository;
-import school.hei.haapi.repository.ExamRepository;
-import school.hei.haapi.repository.GradeRepository;
+import school.hei.haapi.model.*;
+import school.hei.haapi.repository.*;
 import school.hei.haapi.security.AuthenticatedUser;
 
 @Service
@@ -28,6 +25,7 @@ public class GradeService {
   private final ExamRepository examRepository;
   private final AppUserRepository appUserRepository;
   private final CourseOfferingRepository courseOfferingRepository;
+  private final GradeHistoryRepository gradeHistoryRepository;
 
   @Transactional
   public List<GradeDto> bulkCreate(
@@ -92,6 +90,63 @@ public class GradeService {
         .studentId(grade.getStudent().getId())
         .value(grade.getValue())
         .updatedAt(grade.getUpdatedAt())
+        .build();
+  }
+
+  @Transactional
+  public GradeDto update(UUID gradeId, GradeUpdateInputDto input, AuthenticatedUser principal) {
+    Grade grade =
+        gradeRepository
+            .findById(gradeId)
+            .orElseThrow(() -> new NotFoundException("Grade not found: " + gradeId));
+
+    CourseOffering offering = grade.getExam().getCourseOffering();
+    assertTeacherAssignedOrAdmin(offering.getId(), principal);
+
+    AppUser modifiedBy = getCurrentAppUser(principal);
+    BigDecimal previousValue = grade.getValue();
+
+    GradeHistory history =
+        GradeHistory.builder()
+            .grade(grade)
+            .previousValue(previousValue)
+            .newValue(input.getValue())
+            .reason(input.getReason())
+            .modifiedBy(modifiedBy)
+            .build();
+    gradeHistoryRepository.save(history);
+
+    grade.setValue(input.getValue());
+    return toDto(gradeRepository.save(grade));
+  }
+
+  public List<GradeHistoryEntryDto> getHistory(UUID gradeId, AuthenticatedUser principal) {
+    Grade grade =
+        gradeRepository
+            .findById(gradeId)
+            .orElseThrow(() -> new NotFoundException("Grade not found: " + gradeId));
+
+    if (principal.isStudent()) {
+      if (!grade.getStudent().getId().equals(principal.id())) {
+        throw new ForbiddenException("You can only view the history of your own grades");
+      }
+    } else if (principal.isTeacher()) {
+      assertTeacherAssignedOrAdmin(grade.getExam().getCourseOffering().getId(), principal);
+    }
+
+    return gradeHistoryRepository.findByGrade_IdOrderByModifiedAtDesc(gradeId).stream()
+        .map(this::toDto)
+        .toList();
+  }
+
+  private GradeHistoryEntryDto toDto(GradeHistory history) {
+    return GradeHistoryEntryDto.builder()
+        .id(history.getId())
+        .previousValue(history.getPreviousValue())
+        .newValue(history.getNewValue())
+        .reason(history.getReason())
+        .modifiedBy(history.getModifiedBy().getId())
+        .modifiedAt(history.getModifiedAt())
         .build();
   }
 }

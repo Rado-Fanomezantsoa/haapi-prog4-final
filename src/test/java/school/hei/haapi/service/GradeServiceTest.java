@@ -3,6 +3,7 @@ package school.hei.haapi.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -16,6 +17,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import school.hei.haapi.dto.grade.GradeDto;
 import school.hei.haapi.dto.grade.GradeEntryInputDto;
+import school.hei.haapi.dto.grade.GradeHistoryEntryDto;
+import school.hei.haapi.dto.grade.GradeUpdateInputDto;
 import school.hei.haapi.exception.ConflictException;
 import school.hei.haapi.exception.ForbiddenException;
 import school.hei.haapi.exception.NotFoundException;
@@ -25,10 +28,7 @@ import school.hei.haapi.model.CourseOffering;
 import school.hei.haapi.model.Exam;
 import school.hei.haapi.model.Grade;
 import school.hei.haapi.model.Specialization;
-import school.hei.haapi.repository.AppUserRepository;
-import school.hei.haapi.repository.CourseOfferingRepository;
-import school.hei.haapi.repository.ExamRepository;
-import school.hei.haapi.repository.GradeRepository;
+import school.hei.haapi.repository.*;
 import school.hei.haapi.security.AuthenticatedUser;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +37,7 @@ class GradeServiceTest {
   @Mock private GradeRepository gradeRepository;
   @Mock private ExamRepository examRepository;
   @Mock private AppUserRepository appUserRepository;
+  @Mock private GradeHistoryRepository gradeHistoryRepository;
   @Mock private CourseOfferingRepository courseOfferingRepository;
 
   @InjectMocks private GradeService gradeService;
@@ -200,5 +201,137 @@ class GradeServiceTest {
                 examId,
                 List.of(new GradeEntryInputDto(UUID.randomUUID(), BigDecimal.valueOf(14))),
                 admin));
+  }
+
+  @Test
+  void admin_updatesGrade_createsHistoryEntry() {
+    UUID gradeId = UUID.randomUUID();
+    UUID offeringId = UUID.randomUUID();
+    UUID adminId = UUID.randomUUID();
+    UUID studentId = UUID.randomUUID();
+    AuthenticatedUser admin = new AuthenticatedUser(adminId, "ADMIN");
+
+    Exam exam = exam(UUID.randomUUID(), offeringId, List.of());
+    Grade grade =
+        Grade.builder()
+            .id(gradeId)
+            .exam(exam)
+            .student(student(studentId))
+            .value(BigDecimal.valueOf(10))
+            .build();
+
+    when(gradeRepository.findById(gradeId)).thenReturn(Optional.of(grade));
+    when(appUserRepository.findById(adminId)).thenReturn(Optional.of(adminUser(adminId)));
+    when(gradeRepository.save(any())).thenReturn(grade);
+
+    GradeUpdateInputDto input = new GradeUpdateInputDto(BigDecimal.valueOf(15), "Erreur de saisie");
+    GradeDto result = gradeService.update(gradeId, input, admin);
+
+    assertEquals(BigDecimal.valueOf(15), result.getValue());
+    verify(gradeHistoryRepository).save(any());
+  }
+
+  @Test
+  void update_unassignedTeacher_forbidden() {
+    UUID gradeId = UUID.randomUUID();
+    UUID offeringId = UUID.randomUUID();
+    UUID teacherId = UUID.randomUUID();
+    AuthenticatedUser teacher = new AuthenticatedUser(teacherId, "TEACHER");
+
+    Exam exam = exam(UUID.randomUUID(), offeringId, List.of());
+    Grade grade =
+        Grade.builder()
+            .id(gradeId)
+            .exam(exam)
+            .student(student(UUID.randomUUID()))
+            .value(BigDecimal.valueOf(10))
+            .build();
+
+    when(gradeRepository.findById(gradeId)).thenReturn(Optional.of(grade));
+    when(courseOfferingRepository.existsByIdAndTeachers_Id(offeringId, teacherId))
+        .thenReturn(false);
+
+    GradeUpdateInputDto input = new GradeUpdateInputDto(BigDecimal.valueOf(15), "Erreur");
+
+    assertThrows(ForbiddenException.class, () -> gradeService.update(gradeId, input, teacher));
+  }
+
+  @Test
+  void update_unknownGrade_notFound() {
+    UUID gradeId = UUID.randomUUID();
+    AuthenticatedUser admin = new AuthenticatedUser(UUID.randomUUID(), "ADMIN");
+
+    when(gradeRepository.findById(gradeId)).thenReturn(Optional.empty());
+
+    GradeUpdateInputDto input = new GradeUpdateInputDto(BigDecimal.valueOf(15), "Erreur");
+
+    assertThrows(NotFoundException.class, () -> gradeService.update(gradeId, input, admin));
+  }
+
+  @Test
+  void student_seesOwnGradeHistory() {
+    UUID gradeId = UUID.randomUUID();
+    UUID studentId = UUID.randomUUID();
+    AuthenticatedUser studentUser = new AuthenticatedUser(studentId, "STUDENT");
+
+    Exam exam = exam(UUID.randomUUID(), UUID.randomUUID(), List.of());
+    Grade grade =
+        Grade.builder()
+            .id(gradeId)
+            .exam(exam)
+            .student(student(studentId))
+            .value(BigDecimal.valueOf(10))
+            .build();
+
+    when(gradeRepository.findById(gradeId)).thenReturn(Optional.of(grade));
+    when(gradeHistoryRepository.findByGrade_IdOrderByModifiedAtDesc(gradeId)).thenReturn(List.of());
+
+    List<GradeHistoryEntryDto> result = gradeService.getHistory(gradeId, studentUser);
+
+    assertEquals(0, result.size());
+  }
+
+  @Test
+  void student_cannotSeeOthersGradeHistory() {
+    UUID gradeId = UUID.randomUUID();
+    UUID studentId = UUID.randomUUID();
+    UUID otherStudentId = UUID.randomUUID();
+    AuthenticatedUser studentUser = new AuthenticatedUser(studentId, "STUDENT");
+
+    Exam exam = exam(UUID.randomUUID(), UUID.randomUUID(), List.of());
+    Grade grade =
+        Grade.builder()
+            .id(gradeId)
+            .exam(exam)
+            .student(student(otherStudentId))
+            .value(BigDecimal.valueOf(10))
+            .build();
+
+    when(gradeRepository.findById(gradeId)).thenReturn(Optional.of(grade));
+
+    assertThrows(ForbiddenException.class, () -> gradeService.getHistory(gradeId, studentUser));
+  }
+
+  @Test
+  void teacher_notAssigned_cannotSeeGradeHistory() {
+    UUID gradeId = UUID.randomUUID();
+    UUID offeringId = UUID.randomUUID();
+    UUID teacherId = UUID.randomUUID();
+    AuthenticatedUser teacher = new AuthenticatedUser(teacherId, "TEACHER");
+
+    Exam exam = exam(UUID.randomUUID(), offeringId, List.of());
+    Grade grade =
+        Grade.builder()
+            .id(gradeId)
+            .exam(exam)
+            .student(student(UUID.randomUUID()))
+            .value(BigDecimal.valueOf(10))
+            .build();
+
+    when(gradeRepository.findById(gradeId)).thenReturn(Optional.of(grade));
+    when(courseOfferingRepository.existsByIdAndTeachers_Id(offeringId, teacherId))
+        .thenReturn(false);
+
+    assertThrows(ForbiddenException.class, () -> gradeService.getHistory(gradeId, teacher));
   }
 }
