@@ -7,12 +7,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import org.springframework.test.web.servlet.MockMvc;
 import school.hei.haapi.conf.FacadeIT;
+import school.hei.haapi.model.AppUser;
+import school.hei.haapi.repository.AppUserRepository;
 import school.hei.haapi.security.TestJwtGenerator;
 
 /** IT locaux (Postgres Testcontainers via FacadeIT). Ne pas lancer contre Poja preprod. */
@@ -21,6 +26,35 @@ import school.hei.haapi.security.TestJwtGenerator;
 class EndpointsIT extends FacadeIT {
 
   @Autowired private MockMvc mockMvc;
+  @Autowired private AppUserRepository appUserRepository;
+
+@BeforeEach
+void seedAdminForBasicAuth() {
+  if (appUserRepository.findByEmail("admin@hei.school").isEmpty()) {
+    appUserRepository.save(
+        AppUser.builder()
+            .email("admin@hei.school")
+            .passwordHash("password") // NoOpPasswordEncoder
+            .firstName("Ada")
+            .lastName("Admin")
+            .role(AppUser.Role.ADMIN)
+            .build());
+  }
+}
+
+@Test
+void adminPromotions_withBasicAuth_returns200() throws Exception {
+  mockMvc
+      .perform(get("/admin/promotions").with(httpBasic("admin@hei.school", "password")))
+      .andExpect(status().isOk());
+}
+
+@Test
+void adminPromotions_withBadBasicAuth_returns401() throws Exception {
+  mockMvc
+      .perform(get("/admin/promotions").with(httpBasic("admin@hei.school", "wrong")))
+      .andExpect(status().isUnauthorized());
+}
 
   private String bearer(String role) {
     return "Bearer " + TestJwtGenerator.generate(UUID.randomUUID(), role);
