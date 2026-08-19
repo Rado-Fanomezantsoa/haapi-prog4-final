@@ -1,22 +1,34 @@
 openapi: 3.0.3
+
 info:
-  title: HEI Diplômés API (version examen — noyau métier)
+  title: HEI Graduates API (Exam Version — Core Business)
   version: "1.0.0"
   description: >
-    Version resserrée : ne couvre que les règles de gestion et livrables
-    explicitement demandés dans le sujet (assignation prof/groupe, notes +
-    historique, sécurité par rôle, relevé PDF async par email/S3, liste des
-    diplômés + export XLSX/S3, page Thymeleaf). Les entités de référence
-    (promotions, groupes, cours, comptes étudiants/enseignants) sont créées
-    par seed SQL (Flyway) plutôt que par API — on ne construit pas de CRUD
-    d'admin complet pour ça, ça ne fait pas partie des règles évaluées.
-    Rôles : STUDENT, TEACHER, ADMIN.
+    Focused version covering only the business rules and deliverables
+    explicitly required by the assignment: teacher/group assignment,
+    grades and grade history, role-based security, asynchronous transcript
+    PDF requests by email/S3, graduates listing with XLSX/S3 export, and
+    the Thymeleaf administration page.
+
+    Reference entities (promotions, groups, courses, student and teacher
+    accounts) are created through SQL seed data (Flyway) rather than by API.
+    No complete admin CRUD is implemented for these entities because it is
+    outside the evaluated requirements.
+
+    Roles are STUDENT, TEACHER, and ADMIN.
+
+    Authentication is handled through POST /auth/login, which validates
+    the user's email and password and returns a signed JWT containing the
+    authenticated user's UUID and role.
+
 servers:
   - url: /api
+    description: Main API
 
 tags:
+  - name: authentication
   - name: reference
-    description: Lecture seule — nécessaire pour enchaîner les actions ci-dessous
+    description: Read-only reference data required to perform the actions below
   - name: course-offerings
   - name: exams
   - name: grades
@@ -24,214 +36,470 @@ tags:
   - name: graduates
   - name: views
 
-security:
-  - bearerAuth: []
-
 paths:
 
   # ============================================================
-  # RÉFÉRENTIEL (lecture seule — les données sont seedées, pas créées via API)
+  # AUTHENTICATION
   # ============================================================
+  /auth/login:
+    servers:
+      - url: /
+        description: Authentication endpoint
+
+    post:
+      tags: [authentication]
+      summary: Authenticate a user and obtain a JWT
+      description: >
+        Authenticates an existing user using email and password.
+        On successful authentication, the API returns a signed JWT,
+        the user's role, and the user's UUID.
+
+        The role is read from the user account stored in the database
+        and cannot be chosen by the client.
+
+      security: []
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              email: student@example.com
+              password: student123
+
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+
+        "401":
+          description: Invalid email or password
+
+        "400":
+          description: Invalid request body
+
+  # ============================================================
+  # REFERENCE DATA
+  # ============================================================
+
   /promotions:
     get:
       tags: [reference]
-      summary: Lister les promotions (K, J, H, N...)
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      summary: List promotions
+      description: >
+        Lists existing promotions such as K, J, H, N, etc.
+        Accessible only to administrators and teachers.
+
+      security:
+        - bearerAuth: []
+
+      parameters: []
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Promotion" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Promotion"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user does not have the ADMIN or TEACHER role
 
   /promotions/{promotionId}/groups:
     get:
       tags: [reference]
-      summary: Lister les groupes d'une promotion (K, K1, K2, K3...)
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
-      parameters: [{ $ref: "#/components/parameters/PromotionId" }]
+      summary: List groups of a promotion
+      description: >
+        Lists groups belonging to a given promotion.
+        Accessible only to administrators and teachers.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/PromotionId"
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/ClassGroup" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClassGroup"
 
-  # ------------------------------------------------------------
-  # CORRECTIF #1 : endpoint de lecture minimal réintroduit.
-  # POST /groups/{groupId}/students a besoin d'UUID d'étudiants ;
-  # sans lecture, impossible de les récupérer autrement qu'en base.
-  # Reste volontairement simple (filtres, pas de recherche libre).
-  # ------------------------------------------------------------
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user does not have the ADMIN or TEACHER role
+
   /students:
     get:
       tags: [reference]
-      summary: Lister les étudiants (filtrable par promotion et/ou groupe)
+      summary: List students
       description: >
-        Endpoint de lecture minimal, nécessaire pour récupérer les
-        studentId à utiliser dans POST /groups/{groupId}/students et
-        dans les autres actions (transcript-requests, grades...).
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+        Minimal read-only endpoint required to retrieve student UUIDs
+        used by group assignment and other business operations.
+        Students can be filtered by promotion and/or group.
+
+        This endpoint is intentionally restricted to administrators
+        and teachers. A STUDENT cannot use this endpoint to enumerate
+        all students.
+
+      security:
+        - bearerAuth: []
+
       parameters:
         - name: promotionId
           in: query
-          schema: { type: string, format: uuid }
+          schema:
+            type: string
+            format: uuid
+
         - name: groupId
           in: query
-          schema: { type: string, format: uuid }
+          schema:
+            type: string
+            format: uuid
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Student" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Student"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user does not have the ADMIN or TEACHER role
 
   /groups/{groupId}/students:
     get:
       tags: [reference]
-      summary: Lister les étudiants actuellement dans ce groupe
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
-      parameters: [{ $ref: "#/components/parameters/GroupId" }]
+      summary: List students currently assigned to a group
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Student" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Student"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user does not have the ADMIN or TEACHER role
+
     post:
       tags: [reference]
-      summary: Affecter un ou plusieurs étudiants à ce groupe (ferme l'affectation précédente)
+      summary: Assign one or more students to a group
       description: >
-        Règle métier explicite : "un étudiant peut changer de groupe à
-        tout moment durant son parcours" — ferme la membership active
-        (end_date) et ouvre une nouvelle ligne student_group_membership,
-        sans toucher aux notes déjà enregistrées.
-      security: [{ bearerAuth: [ADMIN] }]
-      parameters: [{ $ref: "#/components/parameters/GroupId" }]
+        Assigns students to a group and closes their previous active
+        group membership before creating the new membership.
+
+        Business rule:
+        "A student may change groups at any time during their academic
+        journey."
+
+        Existing grades are not modified.
+
+        This operation is restricted to administrators.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/GroupId"
+
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - studentIds
               properties:
                 studentIds:
                   type: array
-                  items: { type: string, format: uuid }
+                  items:
+                    type: string
+                    format: uuid
+
       responses:
-        "200": { description: Affectation effectuée }
+        "200":
+          description: Assignment successfully completed
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
 
   /courses:
     get:
       tags: [reference]
-      summary: Lister les cours (UE) du référentiel
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
+      summary: List courses
+      description: >
+        Lists reference courses (teaching units).
+
+      security:
+        - bearerAuth: []
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Course" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Course"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user does not have the ADMIN or TEACHER role
 
   # ============================================================
-  # ASSIGNATION PROF / GROUPE SUR UN COURS (règle métier centrale)
+  # COURSE OFFERINGS
   # ============================================================
+
   /course-offerings:
     post:
       tags: [course-offerings]
-      summary: Créer une session de cours pour une année calendaire
-      security: [{ bearerAuth: [ADMIN] }]
+      summary: Create a course offering for a calendar year
+      description: >
+        Creates a course session for a given calendar year.
+
+        This operation is restricted to administrators.
+
+      security:
+        - bearerAuth: []
+
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/CourseOfferingInput" }
+            schema:
+              $ref: "#/components/schemas/CourseOfferingInput"
+
       responses:
         "201":
-          description: Créée
+          description: Course offering created
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/CourseOffering" }
+              schema:
+                $ref: "#/components/schemas/CourseOffering"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
 
   /course-offerings/{offeringId}:
     get:
       tags: [course-offerings]
-      summary: Détail d'une session de cours (profs, groupes, examens assignés)
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
-      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      summary: Get course offering details
+      description: >
+        Returns the course, assigned teachers, assigned groups,
+        and assigned exams.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/OfferingId"
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/CourseOffering" }
+              schema:
+                $ref: "#/components/schemas/CourseOffering"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user does not have the ADMIN or TEACHER role
 
   /course-offerings/{offeringId}/teachers:
     post:
       tags: [course-offerings]
-      summary: Assigner un enseignant à cette session (un cours peut avoir plusieurs profs)
-      security: [{ bearerAuth: [ADMIN] }]
-      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      summary: Assign a teacher to a course offering
+      description: >
+        A course offering may have multiple teachers.
+
+        This operation is restricted to administrators.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/OfferingId"
+
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties: { teacherId: { type: string, format: uuid } }
+              required:
+                - teacherId
+              properties:
+                teacherId:
+                  type: string
+                  format: uuid
+
       responses:
-        "200": { description: Assigné }
+        "200":
+          description: Teacher assigned
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
 
   /course-offerings/{offeringId}/groups:
     post:
       tags: [course-offerings]
-      summary: Associer un groupe à cette session (le cours n'est pas forcément donné à tous les groupes)
-      security: [{ bearerAuth: [ADMIN] }]
-      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      summary: Associate a group with a course offering
+      description: >
+        Associates a group with a course offering.
+        A course does not necessarily have to be taught to every group.
+
+        This operation is restricted to administrators.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/OfferingId"
+
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties: { groupId: { type: string, format: uuid } }
+              required:
+                - groupId
+              properties:
+                groupId:
+                  type: string
+                  format: uuid
+
       responses:
-        "200": { description: Associé }
+        "200":
+          description: Group associated
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
 
   # ============================================================
-  # EXAMENS (coefficient en fraction)
+  # EXAMS
   # ============================================================
+
   /course-offerings/{offeringId}/exams:
     post:
       tags: [exams]
-      summary: Créer un examen (coefficient exprimé en fraction, ex 1/3)
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
-      parameters: [{ $ref: "#/components/parameters/OfferingId" }]
+      summary: Create an exam
+      description: >
+        Creates an exam with a coefficient expressed as a fraction,
+        for example 1/3.
+
+        Restricted to administrators and teachers.
+        For TEACHER users, the application must additionally verify
+        that the teacher is assigned to the corresponding course offering.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/OfferingId"
+
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/ExamInput" }
+            schema:
+              $ref: "#/components/schemas/ExamInput"
+
       responses:
         "201":
-          description: Créé
+          description: Exam created
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Exam" }
+              schema:
+                $ref: "#/components/schemas/Exam"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: >
+            Authenticated user is not authorized.
+            TEACHER users must be assigned to the corresponding course offering.
 
   # ============================================================
-  # NOTES — saisie, modification historisée, consultation par rôle
+  # GRADES
   # ============================================================
+
   /exams/{examId}/grades:
     post:
       tags: [grades]
-      summary: Saisir les notes en masse pour un examen
+      summary: Enter grades in bulk for an exam
       description: >
-        Réservé à l'enseignant assigné à la session de cours (vérifié en
-        application, via course_offering_teacher — pas seulement par
-        @PreAuthorize sur le rôle TEACHER), ou à l'admin.
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
-      parameters: [{ $ref: "#/components/parameters/ExamId" }]
+        Creates grades for the students of an exam.
+
+        Restricted to the teacher assigned to the related course offering
+        or to an administrator.
+
+        Authorization for TEACHER users is checked at application level
+        through the course_offering_teacher relationship and not only
+        through the user's role.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/ExamId"
+
       requestBody:
         required: true
         content:
@@ -240,431 +508,1056 @@ paths:
               type: array
               items:
                 type: object
+                required:
+                  - studentId
+                  - value
                 properties:
-                  studentId: { type: string, format: uuid }
-                  value: { type: number, format: double, minimum: 0, maximum: 20 }
+                  studentId:
+                    type: string
+                    format: uuid
+                  value:
+                    type: number
+                    format: double
+                    minimum: 0
+                    maximum: 20
+
       responses:
         "201":
-          description: Notes enregistrées
+          description: Grades recorded
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Grade" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Grade"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: >
+            STUDENT is not allowed.
+            TEACHER must be assigned to the related course offering.
 
   /grades/{gradeId}:
     put:
       tags: [grades]
-      summary: Modifier une note existante (motif obligatoire, historisé)
+      summary: Update an existing grade
       description: >
-        Règle métier explicite : "une note peut changer... on doit
-        toujours dire pourquoi on modifie la note, et on doit avoir
-        un historique". Crée une ligne grade_history à chaque appel.
-        Réservé à l'enseignant du cours concerné (vérification
-        applicative) ou à l'admin.
-      security: [{ bearerAuth: [ADMIN, TEACHER] }]
-      parameters: [{ $ref: "#/components/parameters/GradeId" }]
+        Updates an existing grade.
+
+        A reason is mandatory and a grade_history record must be created
+        for every modification.
+
+        Restricted to the teacher assigned to the course offering
+        concerned or to an administrator.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/GradeId"
+
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [value, reason]
+              required:
+                - value
+                - reason
               properties:
-                value: { type: number, format: double, minimum: 0, maximum: 20 }
-                reason: { type: string, description: "Motif de la modification (réclamation, erreur...)" }
+                value:
+                  type: number
+                  format: double
+                  minimum: 0
+                  maximum: 20
+
+                reason:
+                  type: string
+                  description: Reason for changing the grade
+
       responses:
         "200":
-          description: OK
+          description: Grade updated
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Grade" }
+              schema:
+                $ref: "#/components/schemas/Grade"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: >
+            STUDENT is not allowed.
+            TEACHER must be assigned to the course concerned.
 
   /grades/{gradeId}/history:
     get:
       tags: [grades]
-      summary: Historique des modifications d'une note
+      summary: Get grade modification history
       description: >
-        STUDENT ne peut consulter que l'historique de SES propres
-        notes (vérification applicative : grade.student_id == principal).
-      security: [{ bearerAuth: [ADMIN, TEACHER, STUDENT] }]
-      parameters: [{ $ref: "#/components/parameters/GradeId" }]
+        Returns the complete modification history of a grade.
+
+        STUDENT users may only access the history of their own grades.
+        TEACHER users must only access grades belonging to courses they teach.
+        ADMIN users have full access.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/GradeId"
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/GradeHistoryEntry" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GradeHistoryEntry"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not authorized to access this grade history
 
   /students/{studentId}/grades:
     get:
       tags: [grades]
-      summary: Notes d'un étudiant (uniquement tronc commun S1-S3 + cours de sa spécialisation à partir du S4)
+      summary: Get a student's grades
       description: >
-        Règle sécu explicite : "un étudiant peut voir SES notes" — un
-        STUDENT ne peut appeler cet endpoint que pour son propre
-        studentId. Un TEACHER ne voit, parmi ces notes, que celles des
-        cours qu'il enseigne à cet étudiant (filtrage applicatif via
-        course_offering_teacher, pas d'accès à la totalité du bulletin).
-        Un ADMIN voit tout.
-      security: [{ bearerAuth: [ADMIN, TEACHER, STUDENT] }]
-      parameters: [{ $ref: "#/components/parameters/StudentId" }]
+        Returns the student's grades, including common-core courses
+        from semesters S1-S3 and specialization courses from S4 onward.
+
+        STUDENT:
+        can only access their own studentId.
+
+        TEACHER:
+        can only see grades for courses they teach to that student.
+        They cannot access the student's complete academic record.
+
+        ADMIN:
+        can access all grades.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/StudentId"
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/GradeDetail" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GradeDetail"
 
-  # ------------------------------------------------------------
-  # CORRECTIF #2 : sécurité resserrée.
-  # La règle du sujet donne au TEACHER un droit scopé à "ses cours",
-  # jamais à la performance globale d'un étudiant sur 3 ans. Cet
-  # endpoint agrège TOUS les cours (y compris ceux d'autres profs),
-  # donc TEACHER est retiré ici — contrairement à /grades ci-dessus,
-  # qui reste accessible au TEACHER mais filtré à ses seuls cours.
-  # ------------------------------------------------------------
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: >
+            STUDENT requested another student's data, or
+            TEACHER requested grades outside the teacher's assigned courses.
+
   /students/{studentId}/averages:
     get:
       tags: [grades]
-      summary: Moyennes calculées (par semestre, par année, générale sur le cursus)
+      summary: Get calculated student averages
       description: >
-        Règle métier explicite : "publier les notes chaque année mais
-        aussi les notes finales pour les trois ans et la moyenne
-        générale de ces trois ans". Réservé à ADMIN et à l'étudiant
-        lui-même (self) : un TEACHER n'a le droit de voir que les
-        notes des cours qu'il enseigne (cf. /students/{id}/grades),
-        pas la performance globale de l'étudiant sur des cours qui ne
-        sont pas les siens — donc TEACHER n'est PAS autorisé ici.
-      security: [{ bearerAuth: [ADMIN, STUDENT] }]
-      parameters: [{ $ref: "#/components/parameters/StudentId" }]
+        Returns semester averages, yearly averages, the overall three-year
+        curriculum average, and credit completion information.
+
+        STUDENT:
+        may access only their own averages.
+
+        ADMIN:
+        may access any student's averages.
+
+        TEACHER:
+        is explicitly not authorized because this endpoint aggregates
+        the student's complete academic performance, including courses
+        taught by other teachers.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/StudentId"
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/StudentAverages" }
+              schema:
+                $ref: "#/components/schemas/StudentAverages"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: >
+            STUDENT requested another student's data,
+            or TEACHER attempted to access the endpoint.
 
   # ============================================================
-  # RELEVÉS DE NOTES (PDF, async par email via S3 — livrable explicite)
+  # TRANSCRIPTS
   # ============================================================
+
   /students/{studentId}/transcript-requests:
     post:
       tags: [transcripts]
-      summary: Demander l'envoi du relevé de notes par email (PDF, généré en async, stocké sur S3)
-      security: [{ bearerAuth: [ADMIN, STUDENT] }]
-      parameters: [{ $ref: "#/components/parameters/StudentId" }]
+      summary: Request a transcript by email
+      description: >
+        Requests generation and delivery of the student's transcript as PDF.
+
+        Processing is asynchronous:
+        event -> worker -> PDF generation -> S3 -> email delivery.
+
+        STUDENT:
+        may request only their own transcript.
+
+        ADMIN:
+        may request a transcript for any student.
+
+        The request body is intentionally empty.
+
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - $ref: "#/components/parameters/StudentId"
+
       responses:
         "202":
-          description: Demande acceptée, traitement asynchrone (event + worker + Mailer Poja)
+          description: >
+            Request accepted for asynchronous processing.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/TranscriptRequest" }
+              schema:
+                $ref: "#/components/schemas/TranscriptRequest"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: >
+            STUDENT requested another student's transcript,
+            or authenticated user is otherwise not authorized.
 
   /transcript-requests/{requestId}:
     get:
       tags: [transcripts]
-      summary: Statut d'une demande de relevé (PENDING/PROCESSING/SENT/FAILED)
-      security: [{ bearerAuth: [ADMIN, STUDENT] }]
+      summary: Get transcript request status
+      description: >
+        Returns the status of a transcript request.
+
+        Possible statuses:
+        PENDING, PROCESSING, SENT, FAILED.
+
+        STUDENT:
+        may access only their own transcript requests.
+
+        ADMIN:
+        may access any transcript request.
+
+      security:
+        - bearerAuth: []
+
       parameters:
         - name: requestId
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema:
+            type: string
+            format: uuid
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/TranscriptRequest" }
+              schema:
+                $ref: "#/components/schemas/TranscriptRequest"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not authorized to access this request
 
   # ============================================================
-  # DIPLÔMÉS / SORTANTS (fonctionnalité la plus dure du sujet)
+  # GRADUATES
   # ============================================================
-  # ------------------------------------------------------------
-  # CORRECTIF #3 : complétude du parcours ajoutée à la description
-  # + champ creditsTaken/expectedCredits sur GraduateEntry, pour ne
-  # pas certifier "diplômé" un étudiant avec juste une bonne moyenne
-  # sur un sous-ensemble incomplet de notes.
-  # ------------------------------------------------------------
+
   /promotions/{promotionId}/graduates:
     get:
       tags: [graduates]
-      summary: Liste classée des diplômés d'une promotion pour une spécialisation
+      summary: List graduates of a promotion for a specialization
       description: >
-        Calcule, pour chaque étudiant de la promotion ayant suivi la
-        spécialisation demandée, la moyenne générale sur les 3 ans
-        (cours du tronc commun S1-S3 + cours de sa spécialisation à
-        partir du S4, notes conservées même après changement de
-        groupe). Un étudiant n'est retenu comme diplômé QUE s'il
-        cumule (a) une moyenne générale >= 10 ET (b) la totalité des
-        crédits attendus sur son parcours (180 crédits sur 3 ans) —
-        "on a notre diplôme quand on a 10 avec TOUTES les notes de
-        son parcours". Un étudiant avec une bonne moyenne mais un
-        dossier de notes incomplet n'apparaît pas dans cette liste.
-        Trié par rang (moyenne décroissante).
-      security: [{ bearerAuth: [ADMIN] }]
+        Computes the graduates of a promotion for the requested specialization.
+
+        The overall average is calculated over the complete three-year
+        curriculum:
+        common-core courses from S1-S3 plus specialization courses
+        from S4 onward.
+
+        A student is considered a graduate only if both conditions are met:
+
+        1. Overall curriculum average >= 10.
+        2. All expected credits have been completed.
+
+        The expected total is 180 credits over three academic years.
+
+        A student with a good average but incomplete coursework must not
+        appear in the graduates list.
+
+        Results are sorted by rank in descending order of average.
+
+        This operation is restricted to ADMIN.
+
+      security:
+        - bearerAuth: []
+
       parameters:
-        - { $ref: "#/components/parameters/PromotionId" }
+        - $ref: "#/components/parameters/PromotionId"
+
         - name: specialization
           in: query
           required: true
-          schema: { $ref: "#/components/schemas/Specialization" }
+          schema:
+            $ref: "#/components/schemas/Specialization"
+
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/GraduateEntry" } }
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraduateEntry"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
 
   /promotions/{promotionId}/graduates/export:
     post:
       tags: [graduates]
-      summary: Générer le fichier Excel (XLSX) de la liste des diplômés et le stocker sur S3
+      summary: Generate the graduates XLSX export
       description: >
-        Livrable explicite : "téléchargement (sans email) d'un fichier
-        Excel de la liste des diplômés d'une promotion donnée".
-        Génération synchrone (pas d'email impliqué) -> retourne
-        directement l'URL S3 pré-signée de téléchargement. Applique
-        le même critère de complétude que GET .../graduates.
-      security: [{ bearerAuth: [ADMIN] }]
+        Generates an Excel XLSX file containing the graduates of a promotion
+        for the requested specialization and stores it on S3.
+
+        The operation is synchronous and does not send an email.
+
+        The same graduation criteria as GET /promotions/{promotionId}/graduates
+        are applied.
+
+        This operation is restricted to ADMIN.
+
+      security:
+        - bearerAuth: []
+
       parameters:
-        - { $ref: "#/components/parameters/PromotionId" }
+        - $ref: "#/components/parameters/PromotionId"
+
         - name: specialization
           in: query
           required: true
-          schema: { $ref: "#/components/schemas/Specialization" }
+          schema:
+            $ref: "#/components/schemas/Specialization"
+
       responses:
         "201":
-          description: Fichier généré, lien de téléchargement direct (URL S3 pré-signée)
+          description: >
+            File generated successfully and stored on S3.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/GraduateExport" }
+              schema:
+                $ref: "#/components/schemas/GraduateExport"
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
 
   /graduate-exports/{exportId}/download:
     get:
       tags: [graduates]
-      summary: Télécharger directement le fichier XLSX (redirige vers l'URL S3 pré-signée)
-      security: [{ bearerAuth: [ADMIN] }]
+      summary: Download a graduates XLSX export
+      description: >
+        Redirects the authenticated administrator to the pre-signed
+        S3 download URL.
+
+      security:
+        - bearerAuth: []
+
       parameters:
         - name: exportId
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema:
+            type: string
+            format: uuid
+
       responses:
-        "302": { description: Redirection vers l'URL S3 pré-signée }
+        "302":
+          description: Redirect to the S3 pre-signed URL
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
 
   # ============================================================
-  # VUE THYMELEAF (livrable explicite)
+  # THYMELEAF VIEW
   # ============================================================
+
   /admin/promotions:
     get:
       tags: [views]
-      summary: Page listant toutes les promotions avec bouton "télécharger diplômés"
-      security: [{ bearerAuth: [ADMIN] }]
+      summary: Display the admin promotions page
+      description: >
+        Returns a Thymeleaf HTML page listing all promotions
+        with a button to download the graduates XLSX export.
+
+        This page is restricted to ADMIN.
+
+      security:
+        - bearerAuth: []
+
       responses:
         "200":
-          description: Page HTML (Thymeleaf)
+          description: HTML page
           content:
-            text/html: { schema: { type: string } }
+            text/html:
+              schema:
+                type: string
+
+        "401":
+          description: Missing or invalid JWT
+
+        "403":
+          description: Authenticated user is not an ADMIN
+
 
 components:
+
+  # ============================================================
+  # SECURITY
+  # ============================================================
+
   securitySchemes:
+
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
       description: >
-        Les rôles listés au niveau de chaque opération (ADMIN, TEACHER,
-        STUDENT) sont vérifiés via Spring Security (@PreAuthorize) en
-        combinant le rôle ET, pour STUDENT/TEACHER, la correspondance
-        avec l'identité du principal :
-        - STUDENT : uniquement sur son propre studentId (self-access).
-        - TEACHER : uniquement sur les cours qu'il enseigne (vérifié
-          via course_offering_teacher), jamais sur l'ensemble du
-          parcours d'un étudiant — voir /students/{id}/averages qui
-          lui est explicitement fermé pour cette raison.
-        - ADMIN : accès complet, y compris les résultats de promotion
-          sur les 3 ans.
-        À vérifier côté implémentation : le mécanisme d'authentification
-        réel exposé par Poja (souvent AWS Cognito derrière API Gateway)
-        avant de câbler cette section sur un JWT générique.
+        JWT authentication.
+
+        The JWT contains:
+        - sub: authenticated user's UUID
+        - role: ADMIN, TEACHER, or STUDENT
+        - iat: token issue time
+        - exp: token expiration time
+
+        Spring Security extracts the role from the JWT and creates
+        the corresponding authority ROLE_ADMIN, ROLE_TEACHER,
+        or ROLE_STUDENT.
+
+        Role and scope rules are additionally enforced at application level:
+
+        - STUDENT: only their own studentId for student-scoped resources.
+        - TEACHER: only courses assigned to them through
+          course_offering_teacher.
+        - ADMIN: unrestricted access to protected resources.
+
+        Authentication is obtained through POST /auth/login.
+
+  # ============================================================
+  # PARAMETERS
+  # ============================================================
 
   parameters:
-    PromotionId: { name: promotionId, in: path, required: true, schema: { type: string, format: uuid } }
-    GroupId:     { name: groupId,     in: path, required: true, schema: { type: string, format: uuid } }
-    StudentId:   { name: studentId,   in: path, required: true, schema: { type: string, format: uuid } }
-    OfferingId:  { name: offeringId,  in: path, required: true, schema: { type: string, format: uuid } }
-    ExamId:      { name: examId,      in: path, required: true, schema: { type: string, format: uuid } }
-    GradeId:     { name: gradeId,     in: path, required: true, schema: { type: string, format: uuid } }
+
+    PromotionId:
+      name: promotionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    StudentId:
+      name: studentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    OfferingId:
+      name: offeringId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    ExamId:
+      name: examId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    GradeId:
+      name: gradeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  # ============================================================
+  # SCHEMAS
+  # ============================================================
 
   schemas:
+
+    # ------------------------------
+    # Authentication
+    # ------------------------------
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+
+        email:
+          type: string
+          format: email
+          description: User email address
+          example: student@example.com
+
+        password:
+          type: string
+          format: password
+          description: User password
+          example: student123
+
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - role
+        - userId
+      properties:
+
+        token:
+          type: string
+          description: Signed JWT used in the Authorization header
+          example: eyJhbGciOiJIUzI1NiJ9...
+
+        role:
+          type: string
+          enum:
+            - STUDENT
+            - TEACHER
+            - ADMIN
+          example: STUDENT
+
+        userId:
+          type: string
+          format: uuid
+          description: UUID of the authenticated user
+          example: 8f4c1f72-2d8a-4b7d-9c15-123456789abc
+
+    # ------------------------------
+    # Reference
+    # ------------------------------
+
     Specialization:
       type: string
-      enum: [COMMUN, EL, TN]
+      enum:
+        - COMMUN
+        - EL
+        - TN
 
     AcademicLevel:
       type: string
-      enum: [L1, L2, L3]
+      enum:
+        - L1
+        - L2
+        - L3
 
     Promotion:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        code: { type: string, example: K }
-        entryCalendarYear: { type: integer, example: 2023 }
-        expectedGraduationYear: { type: integer, example: 2026 }
+
+        id:
+          type: string
+          format: uuid
+
+        code:
+          type: string
+          example: K
+
+        entryCalendarYear:
+          type: integer
+          example: 2023
+
+        expectedGraduationYear:
+          type: integer
+          example: 2026
 
     ClassGroup:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        promotionId: { type: string, format: uuid }
-        ref: { type: string, example: K1 }
-        academicLevel: { $ref: "#/components/schemas/AcademicLevel" }
-        specialization: { $ref: "#/components/schemas/Specialization" }
+
+        id:
+          type: string
+          format: uuid
+
+        promotionId:
+          type: string
+          format: uuid
+
+        ref:
+          type: string
+          example: K1
+
+        academicLevel:
+          $ref: "#/components/schemas/AcademicLevel"
+
+        specialization:
+          $ref: "#/components/schemas/Specialization"
 
     Student:
       type: object
       properties:
-        id: { type: string, format: uuid }
+
+        id:
+          type: string
+          format: uuid
+
         studentRef:
           type: string
           example: STD24054
           pattern: '^STD[A-Za-z0-9-]+$'
-          description: "Référence HEI officielle (cf. hei-admin-api). Convention observée: STD + année d'entrée (2 chiffres) + n° séquentiel (3 chiffres)."
-        firstName: { type: string }
-        lastName: { type: string }
-        specialization: { $ref: "#/components/schemas/Specialization" }
+          description: >
+            Official HEI student reference.
+            Observed convention: STD + two-digit entry year +
+            three-digit sequential number.
+
+        firstName:
+          type: string
+
+        lastName:
+          type: string
+
+        specialization:
+          $ref: "#/components/schemas/Specialization"
 
     Course:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        ref: { type: string, example: PROG4 }
-        title: { type: string }
-        credits: { type: integer }
-        semesterNumber: { type: integer, minimum: 1, maximum: 6 }
-        specialization: { $ref: "#/components/schemas/Specialization" }
+
+        id:
+          type: string
+          format: uuid
+
+        ref:
+          type: string
+          example: PROG4
+
+        title:
+          type: string
+
+        credits:
+          type: integer
+
+        semesterNumber:
+          type: integer
+          minimum: 1
+          maximum: 6
+
+        specialization:
+          $ref: "#/components/schemas/Specialization"
+
+    # ------------------------------
+    # Course Offerings
+    # ------------------------------
 
     CourseOffering:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        course: { $ref: "#/components/schemas/Course" }
-        calendarYear: { type: integer, example: 2025 }
-        teacherIds: { type: array, items: { type: string, format: uuid } }
-        groupIds: { type: array, items: { type: string, format: uuid } }
+
+        id:
+          type: string
+          format: uuid
+
+        course:
+          $ref: "#/components/schemas/Course"
+
+        calendarYear:
+          type: integer
+          example: 2025
+
+        teacherIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+        groupIds:
+          type: array
+          items:
+            type: string
+            format: uuid
 
     CourseOfferingInput:
       type: object
-      required: [courseId, calendarYear]
+      required:
+        - courseId
+        - calendarYear
       properties:
-        courseId: { type: string, format: uuid }
-        calendarYear: { type: integer }
+
+        courseId:
+          type: string
+          format: uuid
+
+        calendarYear:
+          type: integer
+
+    # ------------------------------
+    # Exams
+    # ------------------------------
 
     Exam:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        courseOfferingId: { type: string, format: uuid }
-        label: { type: string, example: "Examen final" }
-        dateExam: { type: string, format: date-time }
-        coefficientNum: { type: integer, example: 1 }
-        coefficientDen: { type: integer, example: 3 }
+
+        id:
+          type: string
+          format: uuid
+
+        courseOfferingId:
+          type: string
+          format: uuid
+
+        label:
+          type: string
+          example: Final Exam
+
+        dateExam:
+          type: string
+          format: date-time
+
+        coefficientNum:
+          type: integer
+          example: 1
+
+        coefficientDen:
+          type: integer
+          example: 3
 
     ExamInput:
       type: object
-      required: [label, dateExam, coefficientNum, coefficientDen]
+      required:
+        - label
+        - dateExam
+        - coefficientNum
+        - coefficientDen
       properties:
-        label: { type: string }
-        dateExam: { type: string, format: date-time }
-        coefficientNum: { type: integer }
-        coefficientDen: { type: integer }
+
+        label:
+          type: string
+
+        dateExam:
+          type: string
+          format: date-time
+
+        coefficientNum:
+          type: integer
+
+        coefficientDen:
+          type: integer
+
+    # ------------------------------
+    # Grades
+    # ------------------------------
 
     Grade:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        examId: { type: string, format: uuid }
-        studentId: { type: string, format: uuid }
-        value: { type: number, format: double }
-        updatedAt: { type: string, format: date-time }
+
+        id:
+          type: string
+          format: uuid
+
+        examId:
+          type: string
+          format: uuid
+
+        studentId:
+          type: string
+          format: uuid
+
+        value:
+          type: number
+          format: double
+
+        updatedAt:
+          type: string
+          format: date-time
 
     GradeDetail:
       allOf:
         - $ref: "#/components/schemas/Grade"
+
         - type: object
           properties:
-            courseRef: { type: string }
-            courseTitle: { type: string }
-            examLabel: { type: string }
-            coefficientNum: { type: integer }
-            coefficientDen: { type: integer }
+
+            courseRef:
+              type: string
+
+            courseTitle:
+              type: string
+
+            examLabel:
+              type: string
+
+            coefficientNum:
+              type: integer
+
+            coefficientDen:
+              type: integer
 
     GradeHistoryEntry:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        previousValue: { type: number, format: double, nullable: true }
-        newValue: { type: number, format: double }
-        reason: { type: string }
-        modifiedBy: { type: string, format: uuid }
-        modifiedAt: { type: string, format: date-time }
+
+        id:
+          type: string
+          format: uuid
+
+        previousValue:
+          type: number
+          format: double
+          nullable: true
+
+        newValue:
+          type: number
+          format: double
+
+        reason:
+          type: string
+
+        modifiedBy:
+          type: string
+          format: uuid
+
+        modifiedAt:
+          type: string
+          format: date-time
+
+    # ------------------------------
+    # Student averages
+    # ------------------------------
 
     StudentAverages:
       type: object
       properties:
-        studentId: { type: string, format: uuid }
+
+        studentId:
+          type: string
+          format: uuid
+
         perSemester:
           type: array
           items:
             type: object
             properties:
-              semesterNumber: { type: integer }
-              average: { type: number, format: double }
-              creditsTaken: { type: integer }
+
+              semesterNumber:
+                type: integer
+
+              average:
+                type: number
+                format: double
+
+              creditsTaken:
+                type: integer
+
         perYear:
           type: array
           items:
             type: object
             properties:
-              academicLevel: { $ref: "#/components/schemas/AcademicLevel" }
-              average: { type: number, format: double }
-              creditsTaken: { type: integer }
-        overallCursusAverage: { type: number, format: double }
-        creditsTaken: { type: integer, description: "Total de crédits couverts par des notes existantes" }
-        expectedCredits: { type: integer, example: 180, description: "Crédits attendus sur l'ensemble du parcours (3 ans)" }
+
+              academicLevel:
+                $ref: "#/components/schemas/AcademicLevel"
+
+              average:
+                type: number
+                format: double
+
+              creditsTaken:
+                type: integer
+
+        overallCursusAverage:
+          type: number
+          format: double
+
+        creditsTaken:
+          type: integer
+          description: >
+            Total number of credits covered by existing grades.
+
+        expectedCredits:
+          type: integer
+          example: 180
+          description: >
+            Expected total number of credits for the full three-year curriculum.
+
         eligibleForDiploma:
           type: boolean
-          description: "true seulement si overallCursusAverage >= 10 ET creditsTaken >= expectedCredits"
+          description: >
+            True only when overallCursusAverage >= 10
+            and creditsTaken >= expectedCredits.
+
+    # ------------------------------
+    # Transcripts
+    # ------------------------------
 
     TranscriptRequest:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        studentId: { type: string, format: uuid }
-        status: { type: string, enum: [PENDING, PROCESSING, SENT, FAILED] }
-        emailSentTo: { type: string, nullable: true }
-        requestedAt: { type: string, format: date-time }
-        completedAt: { type: string, format: date-time, nullable: true }
+
+        id:
+          type: string
+          format: uuid
+
+        studentId:
+          type: string
+          format: uuid
+
+        status:
+          type: string
+          enum:
+            - PENDING
+            - PROCESSING
+            - SENT
+            - FAILED
+
+        emailSentTo:
+          type: string
+          format: email
+          nullable: true
+
+        requestedAt:
+          type: string
+          format: date-time
+
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    # ------------------------------
+    # Graduates
+    # ------------------------------
 
     GraduateEntry:
       type: object
       properties:
-        rank: { type: integer, example: 1 }
-        studentRef: { type: string, example: STD24054 }
-        lastName: { type: string }
-        firstName: { type: string }
-        overallAverage: { type: number, format: double }
-        creditsTaken: { type: integer, description: "Doit être >= expectedCredits pour figurer dans la liste" }
-        expectedCredits: { type: integer, example: 180 }
+
+        rank:
+          type: integer
+          example: 1
+
+        studentRef:
+          type: string
+          example: STD24054
+
+        lastName:
+          type: string
+
+        firstName:
+          type: string
+
+        overallAverage:
+          type: number
+          format: double
+
+        creditsTaken:
+          type: integer
+          description: >
+            Must be greater than or equal to expectedCredits
+            to appear in the graduates list.
+
+        expectedCredits:
+          type: integer
+          example: 180
 
     GraduateExport:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        promotionId: { type: string, format: uuid }
-        specialization: { $ref: "#/components/schemas/Specialization" }
-        status: { type: string, enum: [PENDING, PROCESSING, READY, FAILED] }
-        downloadUrl: { type: string, nullable: true, description: "URL S3 pré-signée" }
-        generatedAt: { type: string, format: date-time }
+
+        id:
+          type: string
+          format: uuid
+
+        promotionId:
+          type: string
+          format: uuid
+
+        specialization:
+          $ref: "#/components/schemas/Specialization"
+
+        status:
+          type: string
+          enum:
+            - PENDING
+            - PROCESSING
+            - READY
+            - FAILED
+
+        downloadUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: S3 pre-signed download URL
+
+        generatedAt:
+          type: string
+          format: date-time
