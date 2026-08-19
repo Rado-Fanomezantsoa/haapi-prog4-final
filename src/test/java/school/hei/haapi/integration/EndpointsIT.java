@@ -1,19 +1,18 @@
 package school.hei.haapi.integration;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import org.springframework.test.web.servlet.MockMvc;
 import school.hei.haapi.conf.FacadeIT;
 import school.hei.haapi.model.AppUser;
@@ -28,33 +27,33 @@ class EndpointsIT extends FacadeIT {
   @Autowired private MockMvc mockMvc;
   @Autowired private AppUserRepository appUserRepository;
 
-@BeforeEach
-void seedAdminForBasicAuth() {
-  if (appUserRepository.findByEmail("admin@hei.school").isEmpty()) {
-    appUserRepository.save(
-        AppUser.builder()
-            .email("admin@hei.school")
-            .passwordHash("password") // NoOpPasswordEncoder
-            .firstName("Ada")
-            .lastName("Admin")
-            .role(AppUser.Role.ADMIN)
-            .build());
+  @BeforeEach
+  void seedAdminForBasicAuth() {
+    if (appUserRepository.findByEmail("admin@hei.school").isEmpty()) {
+      appUserRepository.save(
+          AppUser.builder()
+              .email("admin@hei.school")
+              .passwordHash("password") // NoOpPasswordEncoder
+              .firstName("Ada")
+              .lastName("Admin")
+              .role(AppUser.Role.ADMIN)
+              .build());
+    }
   }
-}
 
-@Test
-void adminPromotions_withBasicAuth_returns200() throws Exception {
-  mockMvc
-      .perform(get("/admin/promotions").with(httpBasic("admin@hei.school", "password")))
-      .andExpect(status().isOk());
-}
+  @Test
+  void adminPromotions_withBasicAuth_returns200() throws Exception {
+    mockMvc
+        .perform(get("/admin/promotions").with(httpBasic("admin@hei.school", "password")))
+        .andExpect(status().isOk());
+  }
 
-@Test
-void adminPromotions_withBadBasicAuth_returns401() throws Exception {
-  mockMvc
-      .perform(get("/admin/promotions").with(httpBasic("admin@hei.school", "wrong")))
-      .andExpect(status().isUnauthorized());
-}
+  @Test
+  void adminPromotions_withBadBasicAuth_returns401() throws Exception {
+    mockMvc
+        .perform(get("/admin/promotions").with(httpBasic("admin@hei.school", "wrong")))
+        .andExpect(status().isUnauthorized());
+  }
 
   private String bearer(String role) {
     return "Bearer " + TestJwtGenerator.generate(UUID.randomUUID(), role);

@@ -43,5 +43,5 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
       @Param("promotionId") UUID promotionId,
       @Param("role") AppUser.Role role);
 
-Optional<AppUser> findByEmail(String email);
+  Optional<AppUser> findByEmail(String email);
 }
