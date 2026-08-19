@@ -31,7 +31,7 @@ public class SecurityConfig {
         .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers("/actuator/health", "/api/_test/public")
+                auth.requestMatchers("/actuator/health", "/api/_test/public", "/auth/login")
                     .permitAll()
                     .anyRequest()
                     .authenticated())
@@ -45,7 +45,6 @@ public class SecurityConfig {
     return http.build();
   }
 
-  /** password_hash en clair en seed/Neon (examen). Prod → BCrypt. */
   @Bean
   @SuppressWarnings("deprecation")
   public PasswordEncoder passwordEncoder() {
